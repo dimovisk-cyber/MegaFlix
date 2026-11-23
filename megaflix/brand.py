@@ -95,4 +95,23 @@ def banner(w, h):
 save(banner(320, 180), "mipmap-xhdpi/banner.png", "RGB")
 save(banner(1920, 1080), "drawable-nodpi/tv_banner.png", "RGB")
 save(banner(1280, 720), "drawable/tv_banner.png", "RGB")
+
+# ---- silent opening video -> res/raw/megaflix_intro.mp4 (played by MegaFlixIntro over the home)
+import shutil, subprocess, tempfile
+try:
+    ff = shutil.which("ffmpeg")
+    if not ff:
+        raise RuntimeError("ffmpeg not found")
+    tmp = tempfile.mkdtemp()
+    here = os.path.dirname(os.path.abspath(__file__))
+    subprocess.run([sys.executable, os.path.join(here, "intro.py"), tmp], check=True)
+    os.makedirs(os.path.join(OUT, "raw"), exist_ok=True)
+    subprocess.run([ff, "-y", "-loglevel", "error", "-framerate", "30", "-i", os.path.join(tmp, "f%03d.png"),
+                    "-an", "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.1", "-pix_fmt", "yuv420p",
+                    "-preset", "veryfast", "-crf", "22", "-movflags", "+faststart",
+                    os.path.join(OUT, "raw", "megaflix_intro.mp4")], check=True)
+    shutil.rmtree(tmp, ignore_errors=True)
+    print("intro: raw/megaflix_intro.mp4 (silent)")
+except Exception as e:
+    print("intro skipped:", e)
 print("ok")
