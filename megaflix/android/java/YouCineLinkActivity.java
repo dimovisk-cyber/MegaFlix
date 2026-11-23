@@ -41,12 +41,35 @@ public class YouCineLinkActivity extends Activity {
         super.onCreate(savedInstanceState);
         Uri uri = getIntent() != null ? getIntent().getData() : null;
         if (uri == null) { finish(); return; }
-        if (findYouCine(this) == null) {
-            Toast.makeText(this, "Instale o YouCine para usar esta opção.", Toast.LENGTH_LONG).show();
+        String path = uri.getPath() == null ? "" : uri.getPath();
+        if (path.startsWith("/piloto")) {
+            try {
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                Toast.makeText(this, "Abra \"MegaFlix Piloto\" e ligue.", Toast.LENGTH_LONG).show();
+            } catch (Exception ignored) { }
             finish();
             return;
         }
-        String path = uri.getPath() == null ? "" : uri.getPath();
+        if (findYouCine(this) == null) {
+            // YouCine ships with MegaFlix: install it, then the user picks YouCine again.
+            YouCineInstaller.install(this);
+            finish();
+            return;
+        }
+        if (path.startsWith("/install")) {
+            Toast.makeText(this, "O YouCine já está instalado.", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+        if (path.startsWith("/open")) {
+            // Login and account live inside YouCine itself.
+            Intent i = getPackageManager().getLaunchIntentForPackage(findYouCine(this));
+            if (i != null) {
+                try { startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (Exception ignored) { }
+            }
+            finish();
+            return;
+        }
         if (path.startsWith("/section")) {
             openSection(uri.getQueryParameter("name"));
         } else {

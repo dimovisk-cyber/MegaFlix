@@ -142,7 +142,7 @@ object MegaFlixYouCine {
             videoId.startsWith("tt") -> videoId.substringBefore(':')
             else -> return groups
         }
-        if (!runCatching { isInstalled(context) }.getOrDefault(false)) return groups
+        val installed = runCatching { isInstalled(context) }.getOrDefault(false)
         val uri = Uri.Builder()
             .scheme("megaflix")
             .authority("youcine")
@@ -160,7 +160,8 @@ object MegaFlixYouCine {
         val stream = Stream(
             name = "YouCine",
             title = "Assistir no YouCine",
-            description = "Dublado e legendado · abre direto no título, em tela cheia",
+            description = if (installed) "Dublado e legendado · abre direto no título, em tela cheia"
+            else "Toque para instalar o YouCine (vem junto com o MegaFlix)",
             url = null,
             ytId = null,
             infoHash = null,
