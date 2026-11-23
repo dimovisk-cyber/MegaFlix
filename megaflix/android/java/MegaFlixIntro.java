@@ -26,7 +26,10 @@ public final class MegaFlixIntro {
         if (shown || savedInstanceState != null) return;
         if (activity.getIntent() != null && activity.getIntent().getData() != null) return;
         final int res = activity.getResources().getIdentifier("megaflix_intro", "raw", activity.getPackageName());
-        if (res == 0) return;
+        if (res == 0) {
+            activity.getWindow().getDecorView().postDelayed(() -> YouCineInstaller.offerOnce(activity), 1500);
+            return;
+        }
         shown = true;
         activity.getWindow().getDecorView().post(new Runnable() {
             @Override public void run() { show(activity, res); }
@@ -60,6 +63,7 @@ public final class MegaFlixIntro {
                         if (parent != null) parent.removeView(box);
                         ViewGroup content = (ViewGroup) activity.findViewById(android.R.id.content);
                         if (content != null && content.getChildCount() > 0) content.getChildAt(0).requestFocus();
+                        YouCineInstaller.offerOnce(activity);
                     }
                 }).start();
             }
