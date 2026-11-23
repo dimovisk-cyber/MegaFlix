@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="megaflix_pilot_label">MegaFlix Piloto</string>
+    <string name="megaflix_pilot_desc">Quando você escolhe YouCine no MegaFlix, o Piloto busca o título no YouCine, abre e começa a reproduzir em tela cheia. Ele só age dentro do YouCine e só quando você pede.</string>
+</resources>
