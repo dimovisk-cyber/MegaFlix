@@ -1,0 +1,138 @@
+name: MegaFlix build
+
+# Builds MegaFlix (Nuvio + megaflix/ overlay) on every push to the megaflix branch,
+# publishes the APK as a GitHub Release and writes a build report to the megaflix-logs branch.
+
+on:
+  push:
+    branches: [megaflix]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: megaflix-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Apply MegaFlix overlay
+        run: |
+          set -o pipefail
+          python3 megaflix/apply.py 2>&1 | tee build.log
+
+      - name: Brand images (MegaFlix logo, icons, TV banners)
+        run: |
+          set -o pipefail
+          pip install --quiet pillow numpy
+          FONT="$RUNNER_TEMP/brand-font.ttf"
+          curl -fsSL -o "$FONT" "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/Montserrat%5Bwght%5D.ttf" \
+            || cp /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf "$FONT"
+          python3 megaflix/brand.py app/src/main/res "$FONT" 2>&1 | tee -a build.log
+
+      - name: Local properties (TMDB key from secrets)
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          touch local.properties local.dev.properties
+          if [ -n "$TMDB_API_KEY" ]; then
+            echo "TMDB_API_KEY=$TMDB_API_KEY" >> local.properties
+            echo "TMDB key: set" | tee -a build.log
+          else
+            echo "::warning::Secret TMDB_API_KEY is not set: titles and synopses will not be in Portuguese."
+            echo "TMDB key: MISSING (add the TMDB_API_KEY repository secret)" | tee -a build.log
+          fi
+
+      - name: Signing (stable MegaFlix key from secrets, so new builds install over old ones)
+        env:
+          MEGAFLIX_KEYSTORE: ${{ secrets.MEGAFLIX_KEYSTORE }}
+        run: |
+          if [ -n "$MEGAFLIX_KEYSTORE" ]; then
+            printf '%s' "$MEGAFLIX_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/megaflix.jks"
+            echo "signing: MegaFlix key" | tee -a build.log
+          else
+            echo "::warning::Secret MEGAFLIX_KEYSTORE not set: using a temporary key (each build must be reinstalled)."
+            keytool -genkeypair -keystore "$RUNNER_TEMP/megaflix.jks" -storepass megaflix-tv -keypass megaflix-tv \
+              -alias megaflix -dname "CN=MegaFlix,O=MegaFlix,C=BR" -keyalg RSA -keysize 2048 -validity 20000
+            echo "signing: TEMPORARY key (add the MEGAFLIX_KEYSTORE secret)" | tee -a build.log
+          fi
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=$RUNNER_TEMP/megaflix.jks"
+            echo "NUVIO_RELEASE_KEY_ALIAS=megaflix"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=megaflix-tv"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=megaflix-tv"
+          } >> "$GITHUB_ENV"
+
+      - name: Usenet prebuilts
+        run: |
+          set -o pipefail
+          (python3 native/usenet/scripts/fetch_prebuilts.py && python3 native/usenet/scripts/check_prebuilts.py) 2>&1 | tee -a build.log
+
+      - name: Build fullRelease APK
+        run: |
+          set -o pipefail
+          ./gradlew :app:assembleFullRelease --stacktrace --no-daemon 2>&1 | tee -a build.log
+
+      - name: Collect APK
+        run: |
+          find app/build/outputs/apk -name "*.apk" | tee -a build.log
+          APK=$(find app/build/outputs/apk/full/release -name "*universal*.apk" | head -1)
+          [ -z "$APK" ] && APK=$(find app/build/outputs/apk/full/release -name "*.apk" | head -1)
+          cp "$APK" MegaFlix.apk
+          ls -la MegaFlix.apk | tee -a build.log
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="megaflix-build-${{ github.run_number }}"
+          gh release create "$TAG" MegaFlix.apk \
+            --target "${{ github.sha }}" \
+            --title "MegaFlix (build ${{ github.run_number }})" \
+            --notes "Versao gerada automaticamente a partir do branch megaflix. Baixe o MegaFlix.apk abaixo e instale na TV ou no celular." \
+            --latest
+          echo "release: $TAG" | tee -a build.log
+
+      - name: Write build report
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+        run: |
+          {
+            echo "# MegaFlix build ${{ github.run_number }}: ${RESULT}"
+            echo
+            echo "commit: ${{ github.sha }}"
+            echo
+            echo "## Errors"
+            echo '```'
+            grep -nE "^e: |error:|FAILURE|What went wrong|Could not|snippet not found|Exception" build.log | head -80 || true
+            echo '```'
+            echo "## Log tail"
+            echo '```'
+            tail -n 150 build.log 2>/dev/null || echo "no build.log"
+            echo '```'
+          } > "$RUNNER_TEMP/report.md"
+          mkdir -p "$RUNNER_TEMP/rep" && cd "$RUNNER_TEMP/rep"
+          git init -q
+          cp "$RUNNER_TEMP/report.md" last-build.md
+          git add last-build.md
+          git -c user.name="megaflix-bot" -c user.email="megaflix-bot@users.noreply.github.com" commit -qm "build ${{ github.run_number }}: ${RESULT}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:megaflix-logs
