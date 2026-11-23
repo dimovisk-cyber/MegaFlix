@@ -176,6 +176,11 @@ edit("app/src/main/AndroidManifest.xml", [
             </intent-filter>
         </activity>
 
+        <!-- MegaFlix: installs the bundled YouCine -->
+        <receiver
+            android:name=".megaflix.YouCineInstaller$Result"
+            android:exported="false" />
+
         <!-- MegaFlix Piloto: searches, opens and plays the title inside YouCine -->
         <service
             android:name=".megaflix.PilotService"
@@ -192,6 +197,23 @@ edit("app/src/main/AndroidManifest.xml", [
     </application>"""),
 ])
 
+# ---- YouCine ships inside MegaFlix: the APK attached to this fork's "youcine" release goes to assets/
+import json, urllib.request
+try:
+    req = urllib.request.Request("https://api.github.com/repos/dimovisk-cyber/MegaFlix/releases/tags/youcine",
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "megaflix-build"})
+    rel = json.load(urllib.request.urlopen(req, timeout=30))
+    apk = next((a for a in rel.get("assets", []) if a.get("name", "").lower().endswith(".apk")), None)
+    if apk is None:
+        raise RuntimeError("release 'youcine' has no .apk")
+    os.makedirs(os.path.join(ROOT, "app/src/main/assets"), exist_ok=True)
+    target = os.path.join(ROOT, "app/src/main/assets/youcine.apk")
+    with urllib.request.urlopen(urllib.request.Request(apk["browser_download_url"], headers={"User-Agent": "megaflix-build"}), timeout=300) as r, open(target, "wb") as out:
+        shutil.copyfileobj(r, out)
+    print("youcine: bundled %s (%d bytes)" % (apk["name"], os.path.getsize(target)))
+except Exception as e:
+    print("youcine: not bundled (%s); the app downloads it from the 'youcine' release when needed" % e)
+
 # ---- whole interface in Brazilian Portuguese unless the user picks another language
 edit(J + "/NuvioApplication.kt", [(
     """        val tag = getSharedPreferences("app_locale", Context.MODE_PRIVATE)
@@ -206,10 +228,27 @@ edit(ptbr, [
     ('<string name="hero_remove_from_library">Remover da biblioteca</string>', '<string name="hero_remove_from_library">Remover da Minha lista</string>'),
 ], required=False)
 
-# ---- no Nuvio account screen at startup (Nuvio's cloud login does not serve MegaFlix): open straight to the home
-edit(J + "/data/local/AppOnboardingDataStore.kt", [(
-    "prefs[hasSeenAuthQrOnFirstLaunchKey] ?: false",
-    "prefs[hasSeenAuthQrOnFirstLaunchKey] ?: true")])
+# ---- Nuvio account (login on first use, later in Configurações > Conta): Nuvio's public client endpoint
+edit("app/build.gradle.kts", [
+    ('localProperties.getProperty("NUVIO_SUPABASE_URL", "")', 'localProperties.getProperty("NUVIO_SUPABASE_URL", "https://api.nuvio.tv")'),
+    ('localProperties.getProperty("NUVIO_SUPABASE_ANON_KEY", "")',
+     'localProperties.getProperty("NUVIO_SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxNTIxMzQ2LCJleHAiOjE5MzkyMDEzNDZ9.tmQaj682pwzehpqlgCDMnySOqiUvpgRbrE43T4VJpDI")'),
+    ('localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")',
+     'localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "https://api.nuvio.tv/storage/v1/object/public/avatars")'),
+])
+# Configurações > Conta: YouCine account card above the Nuvio account
+edit(J + "/ui/screens/settings/SettingsScreen.kt", [(
+    """        SettingsDetailHeader(
+            title = stringResource(R.string.settings_account),
+            subtitle = stringResource(R.string.settings_account_section_subtitle)
+        )
+""",
+    """        SettingsDetailHeader(
+            title = stringResource(R.string.settings_account),
+            subtitle = stringResource(R.string.settings_account_section_subtitle)
+        )
+        com.nuvio.tv.megaflix.MegaFlixYouCineAccountCard()
+""")])
 
 # ---- silent intro over the home, fading into it
 edit(J + "/MainActivity.kt", [(
