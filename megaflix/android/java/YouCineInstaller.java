@@ -43,17 +43,27 @@ public final class YouCineInstaller {
         return YouCineLinkActivity.findYouCine(c) != null;
     }
 
-    /** First launch: offers to install YouCine once (after the intro). */
+    /** First launch: YouCine account step, once (after the intro). Later: Configurações > Conta. */
     public static void offerOnce(final Activity a) {
-        if (a.isFinishing() || isInstalled(a)) return;
+        if (a.isFinishing()) return;
         final SharedPreferences p = a.getSharedPreferences(PREFS, 0);
         if (p.getBoolean("offered", false)) return;
         p.edit().putBoolean("offered", true).apply();
+        final boolean installed = isInstalled(a);
         new AlertDialog.Builder(a, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Instalar o YouCine")
+                .setTitle("Conta YouCine")
                 .setMessage("O YouCine é a segunda opção de servidor do MegaFlix (dublado e legendado, "
-                        + "canais e esportes). Ele vem junto com o MegaFlix: é só instalar.")
-                .setPositiveButton("Instalar", (d, w) -> install(a))
+                        + "canais e esportes) e já vem junto com o app. "
+                        + (installed ? "Entre na sua conta no YouCine para usá-lo." : "Instale e entre na sua conta para usá-lo.")
+                        + "\n\nVocê pode fazer isso depois em Configurações > Conta.")
+                .setPositiveButton(installed ? "Entrar no YouCine" : "Instalar YouCine", (d, w) -> {
+                    if (installed) {
+                        Intent i = a.getPackageManager().getLaunchIntentForPackage(YouCineLinkActivity.findYouCine(a));
+                        if (i != null) try { a.startActivity(i); } catch (Exception ignored) { }
+                    } else {
+                        install(a);
+                    }
+                })
                 .setNegativeButton("Agora não", null)
                 .show();
     }
